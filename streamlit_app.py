@@ -1,21 +1,26 @@
 import streamlit as st
-import google.generativeai as genai
+from openai import OpenAI
+import os
 
 # Show title and description.
 st.title("💬 Chatbot")
 st.write(
-    "This is a simple chatbot that uses Google's Gemini Pro model to generate responses. "
-    "To use this app, you need to provide a Gemini API key, which you can get [here](https://ai.google.dev/)."
+    "This is a simple chatbot powered by your organization's LLM Foundry. "
+    "To use this app, you need to provide your LLM Foundry token."
 )
 
-# Ask user for their Gemini API key via `st.text_input`.
-gemini_api_key = st.text_input("Gemini API Key", type="password")
-if not gemini_api_key:
-    st.info("Please add your Gemini API key to continue.", icon="🗝️")
+# Ask user for their LLM Foundry token via `st.text_input`.
+# Alternatively, you can set this in `.streamlit/secrets.toml` as `LLMFOUNDRY_TOKEN`.
+llmfoundry_token = st.text_input("LLM Foundry Token", type="password")
+if not llmfoundry_token:
+    st.info("Please add your LLM Foundry token to continue.", icon="🗝️")
 else:
-    # Configure the Gemini API client.
-    genai.configure(api_key=gemini_api_key)
-    model = genai.GenerativeModel('gemini-pro')
+    # Create an OpenAI client with your LLM Foundry endpoint.
+    project_name = "my-test-project"  # Or ask the user for a project name if needed
+    client = OpenAI(
+        api_key=f"{llmfoundry_token}:{project_name}",
+        base_url="https://llmfoundry.straive.com/openai/v1/",
+    )
 
     # Create a session state variable to store the chat messages.
     if "messages" not in st.session_state:
@@ -33,20 +38,17 @@ else:
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Prepare the chat history for Gemini (Gemini expects a simple chat format).
-        # Note: Gemini does not support streaming responses in the same way as OpenAI,
-        # so we simplify the chat history and use a single prompt or recent context.
-        # For a full conversation, you can send the last N messages as context.
-        recent_messages = " ".join([m["content"] for m in st.session_state.messages[-5:]])
-        # Or, for a simple prompt-response, just use the latest prompt:
-        prompt_for_gemini = prompt
+        # Generate a response using the LLM Foundry API.
+        stream = client.chat.completions.create(
+            model="gpt-4o-mini",  # Use your organization's model name
+            messages=[
+                {"role": m["role"], "content": m["content"]}
+                for m in st.session_state.messages
+            ],
+            stream=True,
+        )
 
-        # Generate a response using the Gemini API.
-        response = model.generate_content(prompt_for_gemini)
-
-        # Streamlit does not have a direct streaming equivalent for Gemini,
-        # but you can display the response as it comes (if you want to simulate streaming).
-        # For now, just display the response.
+        # Stream the response to the chat using `st.write_stream`, then store it in session state.
         with st.chat_message("assistant"):
-            st.markdown(response.text)
-        st.session_state.messages.append({"role": "assistant", "content": response.text})
+            response = st.write_stream(stream)
+        st.session_state.messages.append({"role": "assistant", "content": response})
